@@ -307,3 +307,7 @@ if __name__ == "__main__":
         dpg.render_dearpygui_frame()
 
     dpg.destroy_context()
+    if viewer_process is not None and viewer_process.is_alive():
+        viewer_process.terminate()
+        viewer_process.join()
+        
