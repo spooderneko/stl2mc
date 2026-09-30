@@ -32,11 +32,10 @@ last_rot_z = 0.0
 
 
 # --- PREP FUNCTIONS ---
-if not os.listdir(BLOCKS_DIR):
+if not any(f.endswith('.conf') for f in os.listdir(BLOCKS_DIR)):
     with open(os.path.join(BLOCKS_DIR, "default.conf"), "w") as f:
         f.write("White Concrete=minecraft:white_concrete\n")
-        f.write("Stone=minecraft:stone\n")
-
+        
 
 # --- FUNCTIONS ---
 def load_blocks_from_file(filename):
