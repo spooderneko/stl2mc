@@ -1,0 +1,10 @@
+# Python Stuff
+venv/
+__pycache__/
+.python-version
+
+input/*.stl
+!input/.gitkeep
+
+output/*
+!output/.gitkeep
