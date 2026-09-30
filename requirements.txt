@@ -3,3 +3,4 @@ numpy
 scipy
 dearpygui
 pyglet<2.0
+litemapy

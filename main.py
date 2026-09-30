@@ -5,18 +5,23 @@ import ctypes
 import multiprocessing
 import numpy as np
 import dearpygui.dearpygui as dpg
+from litemapy import Schematic, Region, BlockState
 from scipy.ndimage import binary_erosion, binary_fill_holes
 
 
 # --- GLOBAL VARIABLES ---
 INPUT_DIR = "input"
 OUTPUT_DIR = "output"
+BLOCKS_DIR = "block_lists"
 os.makedirs(INPUT_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(BLOCKS_DIR, exist_ok=True)
+
 current_model_path = None
 voxel_matrix = None
 viewer_process = None
 shared_z = multiprocessing.Value(ctypes.c_int, 0)
+current_minecraft_blocks = {}
 
 # Memory vars
 last_z_max = 100
@@ -26,7 +31,36 @@ last_rot_y = 0.0
 last_rot_z = 0.0
 
 
+# --- PREP FUNCTIONS ---
+if not os.listdir(BLOCKS_DIR):
+    with open(os.path.join(BLOCKS_DIR, "default.conf"), "w") as f:
+        f.write("White Concrete=minecraft:white_concrete\n")
+        f.write("Stone=minecraft:stone\n")
+
+
 # --- FUNCTIONS ---
+def load_blocks_from_file(filename):
+    blocks = {}
+    filepath = os.path.join(BLOCKS_DIR, filename)
+    if os.path.exists(filepath):
+        with open(filepath, 'r') as f:
+            for line in f:
+                if '=' in line and not line.startswith('#'):
+                    name, val = line.strip().split('=', 1)
+                    blocks[name.strip()] = val.strip()
+    return blocks
+
+def on_config_changed(sender, app_data, user_data):
+    global current_minecraft_blocks
+    current_minecraft_blocks = load_blocks_from_file(app_data)
+    
+    block_names = list(current_minecraft_blocks.keys())
+    default_val = block_names[0] if block_names else ""
+    
+    # Updates the configuration
+    dpg.configure_item("material_input", items=block_names, default_value=default_val)
+
+
 def load_file_dialog_callback(sender, app_data):
     global current_model_path
     if "file_path_name" in app_data:
@@ -235,6 +269,47 @@ def update_2d_view(sender=None, app_data=None, user_data=None):
 
     shared_z.value = z_current
 
+def export_to_litematic(sender=None, app_data=None, user_data=None):
+    global voxel_matrix, current_model_path, current_minecraft_blocks
+    
+    if voxel_matrix is None or not np.any(voxel_matrix) or not isinstance(current_model_path, str):
+        dpg.set_value("status_text", "Error: Generate a model first.")
+        return
+
+    dpg.set_value("status_text", "Export in progress, please wait...")
+
+    #! WARNING !!!!
+    #! Minecraft axes : X Z flat then Y height
+    #! This code axes : X Y flat then Z height
+    max_x, max_y, max_z = voxel_matrix.shape 
+    # type: ignore we know that voxel matrix has passed a filter
+    reg = Region(0, 0, 0, max_x, max_z, max_y)  # Swap Y and Z here
+    
+    base_name = os.path.splitext(os.path.basename(current_model_path))[0]
+
+    schem = Schematic(
+        name=base_name, 
+        author="STL2MC", 
+        description="Structure generated using STL2MC", 
+        regions={"main": reg}
+    )
+    selected_material_name = dpg.get_value("material_input")
+    block_id = current_minecraft_blocks.get(selected_material_name, "minecraft:stone")
+    block = BlockState(block_id)
+
+    # Reverted too because blocks must be placed with the same way as the region above
+    xs, ys, zs = np.where(voxel_matrix)
+    for x, y, z in zip(xs, ys, zs):
+        reg[int(x), int(z), int(y)] = block
+
+    # Save in output folder
+    export_path = os.path.join(OUTPUT_DIR, f"{base_name}.litematic")
+    schem.save(export_path)
+    
+    dpg.set_value("status_text", f"Success : Exported to {export_path}")
+
+
+
 def cancel_changes(sender=None, app_data=None, user_data=None):
     dpg.set_value("z_max_input", last_z_max)
     dpg.set_value("fill_input", last_fill)
@@ -284,6 +359,18 @@ if __name__ == "__main__":
                 
                 dpg.add_separator()
                 dpg.add_button(label="Open 3D Viewer...", callback=show_real_3d_viewer, width=-1, height=50)
+
+                dpg.add_separator()
+                dpg.add_text("Export Litematica", color=(150, 200, 255))
+                conf_files = [f for f in os.listdir(BLOCKS_DIR) if f.endswith('.conf')] # Load configuration files
+                default_conf = conf_files[0] if conf_files else ""
+                if default_conf:
+                    current_minecraft_blocks = load_blocks_from_file(default_conf)
+                initial_blocks = list(current_minecraft_blocks.keys())
+                default_block = initial_blocks[0] if initial_blocks else ""
+                dpg.add_combo(conf_files, label="File version to use", default_value=default_conf, tag="config_file_input", callback=on_config_changed, width=-1)
+                dpg.add_combo(initial_blocks, default_value=default_block, tag="material_input", width=-1)
+                dpg.add_button(label="Export to .litematic", callback=export_to_litematic, width=-1, height=40)
 
             # Right column = all the space not used by the left column = viewer and its settings
             with dpg.child_window(border=False): # type: ignore yea yea i know

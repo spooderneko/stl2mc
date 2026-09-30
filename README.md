@@ -35,9 +35,10 @@ Run the GUI: `python main.py`
 
 
 ## To do if im not lazy
-- [ ] Convert these... things I do to litematics and world edit
-- [ ] Maybe add palette colors and blocks (first implementation with shadows only)
+- [ ] Add a grid because it can be hard to count blocks in 2D
+- [x] ~~Maybe add palette colors and blocks (first implementation with shadows only)~~ => May be useless since occlusion and shaders exists for this
 - [x] ~~Chunk grid in red~~ => Useless ?
+- [x] Convert these... things I do to litematics and world edit
 - [x] Convert voxels to stacks of 64, chests and double chests
 - [x] Add previous layers
 - [x] Add 3D View
