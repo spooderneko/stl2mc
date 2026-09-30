@@ -35,10 +35,10 @@ Run the GUI: `python main.py`
 
 
 ## To do if im not lazy
-- [ ] Convert voxels to stacks of 64, chests and double chests
 - [ ] Convert these... things I do to litematics and world edit
 - [ ] Maybe add palette colors and blocks (first implementation with shadows only)
 - [x] ~~Chunk grid in red~~ => Useless ?
+- [x] Convert voxels to stacks of 64, chests and double chests
 - [x] Add previous layers
 - [x] Add 3D View
 

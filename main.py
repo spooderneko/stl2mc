@@ -98,6 +98,23 @@ def process_mesh(sender = None, app_data = None, user_data = None):
 
     dpg.set_value("status_text", f"Status : Generation done ({np.sum(voxel_matrix)} voxels) - Final Zmax {max_z_index + 1}")
 
+    # Calculate block quantities
+    total_voxels = int(np.sum(voxel_matrix))
+    if total_voxels > 0:
+        stacks = total_voxels / 64.0
+        chests = total_voxels / (64.0*27.0)
+        double_chests = total_voxels / (64.0*27.0*2)
+
+        bom_text = (
+                f"Total : {total_voxels} blocks\n"
+                f"- {stacks:.1f} Stacks (64)\n"
+                f"- {chests:.1f} Simple chests\n"
+                f"- {double_chests:.1f} Double chests"
+            )
+    else:
+        bom_text = "No block generated"
+    dpg.set_value("bom_text", bom_text)
+
     # Freeze the zoom 
     dpg.fit_axis_data("x_axis")
     dpg.fit_axis_data("y_axis")
@@ -260,6 +277,10 @@ if __name__ == "__main__":
                     dpg.add_button(label="Cancel", callback=cancel_changes, width=165)
                     dpg.add_button(label="Apply", callback=process_mesh, width=165)
                 dpg.add_text("Statut : Standby...", tag="status_text", color=(100, 255, 100), wrap=330)
+
+                dpg.add_separator()
+                dpg.add_text("Blocks list", color=(255, 200, 100))
+                dpg.add_text("Standby...", tag="bom_text", wrap=330)
                 
                 dpg.add_separator()
                 dpg.add_button(label="Open 3D Viewer...", callback=show_real_3d_viewer, width=-1, height=50)
