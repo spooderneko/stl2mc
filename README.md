@@ -1,6 +1,12 @@
 # STL to Minecraft Blueprint
 
 An interactive Python tool to convert STL files to "building instructions" layer by layer for Minecraft.
+<p align="center">
+  <img src="docs/app.gif" alt="Interface" width="50%"/>
+  <br>
+  <sub><em><a href="https://www.printables.com/model/1262651-angel-figurine">@29flo_2608524</a> on Printables</em></sub>
+</p>
+
 
 ## Features
 * **2D Visualization (Cross-section):** Displays the current Z-layer alongside the previous layer (Z-1) with a grid
