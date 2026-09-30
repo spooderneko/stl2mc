@@ -3,9 +3,11 @@
 An interactive Python tool to convert STL files to "building instructions" layer by layer for Minecraft.
 
 ## Features
-* **2D Visualization (Cross-section):** Displays the current Z-layer alongside the previous layer (Z-1)
+* **2D Visualization (Cross-section):** Displays the current Z-layer alongside the previous layer (Z-1) with a grid
 * **3D Visualization:** Isometric viewer synced with the 2D viewer
 * **Hollowing:** Options to keep only a shell (0% infill) or a solid structure (100%). Partial filling is... meh
+* **Block counter:** Determines in minecraft units (block, stack, chest or double chests) how many blocks are used
+* **Litematica export:** Export a file to ".litematic" format
 
 ## Installation
 1. Make sure to have Python installed (I used 3.11.7)
@@ -35,13 +37,9 @@ Run the GUI: `python main.py`
 
 
 ## To do if im not lazy
-- [x] Add a grid because it can be hard to count blocks in 2D
-- [x] ~~Maybe add palette colors and blocks (first implementation with shadows only)~~ => May be useless since occlusion and shaders exists for this
-- [x] ~~Chunk grid in red~~ => Useless ?
-- [x] Convert these... things I do to litematics and world edit
-- [x] Convert voxels to stacks of 64, chests and double chests
-- [x] Add previous layers
-- [x] Add 3D View
+- [ ] Antifreeze if I load 7894616546060 polygons (to another thread + loading bar)
+- [ ] Vanilla limit (0-255, -64-320) warnings
+- [ ] Colored objects (but I should create a kdtree help x_x)
 
 
 ## Author
