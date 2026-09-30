@@ -375,13 +375,13 @@ if __name__ == "__main__":
             # Right column = all the space not used by the left column = viewer and its settings
             with dpg.child_window(border=False): # type: ignore yea yea i know
                 with dpg.group(horizontal=True): # type: ignore .......
-                    dpg.add_input_int(label="Current layer (Z)", default_value=0, min_value=0, max_value=0, tag="layer_input", callback=update_2d_view, width=150, step=1)
+                    dpg.add_input_int(label="Current layer (Z)", default_value=0, min_value=0, min_clamped=True, max_value=0, max_clamped=True, tag="layer_input", callback=update_2d_view, width=150, step=1)
                     dpg.add_button(label="Center view (reset camera)", callback=lambda: (dpg.fit_axis_data("x_axis"), dpg.fit_axis_data("y_axis")))
                 
                 with dpg.plot(label="Cross section plane", height=-1, width=-1, no_menus=True, no_mouse_pos=True, equal_aspects=True): # type: ignore
                     dpg.add_plot_legend(show=False)
-                    dpg.add_plot_axis(dpg.mvXAxis, label="X", tag="x_axis", no_gridlines=True, no_tick_marks=True, no_tick_labels=True)
-                    with dpg.plot_axis(dpg.mvYAxis, label="Y", tag="y_axis", no_gridlines=True, no_tick_marks=True, no_tick_labels=True): # type: ignore
+                    dpg.add_plot_axis(dpg.mvXAxis, label="X", tag="x_axis", no_gridlines=False, no_tick_marks=False, no_tick_labels=False)
+                    with dpg.plot_axis(dpg.mvYAxis, label="Y", tag="y_axis", no_gridlines=False, no_tick_marks=False, no_tick_labels=False): # type: ignore
                         pass  # The scatter series will be added dynamically in the update_view function
 
     dpg.setup_dearpygui()
