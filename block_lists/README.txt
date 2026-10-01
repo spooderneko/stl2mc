@@ -1,8 +1,10 @@
                                   CONFIGURATION FOR BLOCKS
                                 ============================
 
-THIS FOLDER CONTAINS BLOCK NAMES AND ITS MINECRAFT NAME WHEN YOU EXPORT STLs TO LITEMATICA
-Example: Dirt is "minecraft:Dirt", Shaft from create is "create:shaft"
+THIS FOLDER CONTAINS BLOCK, ITS MINECRAFT ID AND ITS AVERAGE COLOR WHEN YOU EXPORT STLs TO
+LITEMATICA
+Ex: Gray Wool = minecraft:gray_wool, and its color is ~ 72, 72, 72. In the file it will be
+    Gray Wool=minecraft:gray_wool=72,72,72
 
 If no configuration file is found in this folder, the script will create a "default.conf"
 file.
@@ -14,9 +16,9 @@ look for fewer names (ex: wool.conf, concrete.conf, stone.conf) or even for mine
 
 RULES TO CREATE A CUSTOM LIST
   1. The script only reads configuration files that ends with ".conf"
-  2. The structure inside must be per line the format "Block Name=minecraft:block_name"
-     (corresponding to your blocks)
-  3. Avoid naming it "default.conf" since the scripts creates one by default
+  2. The structure must be 1 block per line using the following format:
+         "Block Name=minecraft:block_name=R,G,B"
+  3. Avoid naming it "default.conf" since the script creates one by default
 
 THEREFORE
 If you want to disable a configuration list, name it with another extension. Let's say you

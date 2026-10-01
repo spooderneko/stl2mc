@@ -6,7 +6,7 @@ import multiprocessing
 import numpy as np
 import dearpygui.dearpygui as dpg
 from litemapy import Schematic, Region, BlockState
-from scipy.ndimage import binary_erosion, binary_fill_holes
+from scipy.ndimage import binary_erosion, binary_fill_holes, convolve
 
 
 # --- GLOBAL VARIABLES ---
@@ -23,6 +23,10 @@ viewer_process = None
 shared_z = multiprocessing.Value(ctypes.c_int, 0)
 current_minecraft_blocks = {}
 
+# Lighting global caches (so export can use them)
+ao_scores = None
+sun_light = None
+
 # Memory vars
 last_z_max = 100
 last_fill = 0.0
@@ -34,29 +38,42 @@ last_rot_z = 0.0
 # --- PREP FUNCTIONS ---
 if not any(f.endswith('.conf') for f in os.listdir(BLOCKS_DIR)):
     with open(os.path.join(BLOCKS_DIR, "default.conf"), "w") as f:
-        f.write("White Concrete=minecraft:white_concrete\n")
+        f.write("White Concrete=minecraft:white_concrete=225,226,227\n")
+        f.write("Light Gray Concrete=minecraft:light_gray_concrete=125,125,121\n")
+        f.write("Gray Concrete=minecraft:gray_concrete=54,57,61\n")
+        f.write("Black Concrete=minecraft:black_concrete=8,10,15\n")
         
 
 # --- FUNCTIONS ---
 def load_blocks_from_file(filename):
-    blocks = {}
+    blocks = []
     filepath = os.path.join(BLOCKS_DIR, filename)
     if os.path.exists(filepath):
         with open(filepath, 'r') as f:
             for line in f:
                 if '=' in line and not line.startswith('#'):
-                    name, val = line.strip().split('=', 1)
-                    blocks[name.strip()] = val.strip()
+                    parts = line.strip().split('=')
+                    if len(parts) >= 3:
+                        name, block_id = parts[0].strip(), parts[1].strip()
+                        r, g, b = map(int, parts[2].split(','))
+                        # Luminance formula
+                        lum = 0.299*r + 0.587*g + 0.114*b
+                        blocks.append({
+                            "name": name, 
+                            "id": block_id, 
+                            "color": [r, g, b, 255],
+                            "lum": lum
+                        })
+    # Brightest first
+    #! WARNING: ONLY USABLE IN GRAYSCALE
+    blocks.sort(key=lambda x: x["lum"], reverse=True)
     return blocks
 
 def on_config_changed(sender, app_data, user_data):
     global current_minecraft_blocks
     current_minecraft_blocks = load_blocks_from_file(app_data)
-    
-    block_names = list(current_minecraft_blocks.keys())
+    block_names = [b["name"] for b in current_minecraft_blocks]
     default_val = block_names[0] if block_names else ""
-    
-    # Updates the configuration
     dpg.configure_item("material_input", items=block_names, default_value=default_val)
 
 
@@ -70,12 +87,13 @@ def load_file_dialog_callback(sender, app_data):
 def process_mesh(sender = None, app_data = None, user_data = None):
     global current_model_path, voxel_matrix, viewer_process
     global last_z_max, last_fill, last_rot_x, last_rot_y, last_rot_z
+    global ao_scores, sun_light
 
     if not current_model_path or not os.path.exists(current_model_path):
         return
 
     # Get UI Values
-    z_max = last_z_max = int(dpg.get_value("z_max_input") or 100)
+    z_max = last_z_max = int(dpg.get_value("z_max_input") or 50)  # Better than 100 and less calculation time
     fill_percent = last_fill = float(dpg.get_value("fill_input") or 0.0)
     rot_x = last_rot_x = float(dpg.get_value("rot_x_input") or 0.0)
     rot_y = last_rot_y = float(dpg.get_value("rot_y_input") or 0.0)
@@ -129,6 +147,18 @@ def process_mesh(sender = None, app_data = None, user_data = None):
     if current_layer > max_z_index:
         dpg.set_value("layer_input", max_z_index)
 
+    # Pre compute lighting
+    sun_light = np.zeros_like(voxel_matrix, dtype=bool)
+    for x in range(voxel_matrix.shape[0]):
+        for y in range(voxel_matrix.shape[1]):
+            z_i = np.where(voxel_matrix[x, y, :])[0]
+            if len(z_i) > 0:
+                sun_light[x, y, z_i[-1]] = True
+
+    kernel = np.ones((3, 3, 3), dtype=int)
+    kernel[1, 1, 1] = 0
+    ao_scores = convolve(voxel_matrix.astype(int), kernel, mode="constant", cval=0)
+
     dpg.set_value("status_text", f"Status : Generation done ({np.sum(voxel_matrix)} voxels) - Final Zmax {max_z_index + 1}")
 
     # Calculate block quantities
@@ -140,7 +170,7 @@ def process_mesh(sender = None, app_data = None, user_data = None):
 
         bom_text = (
                 f"Total : {total_voxels} blocks\n"
-                f"- {stacks:.1f} Stacks (64)\n"
+                f"- {stacks:.1f} Stacks\n"  # Easier to read
                 f"- {chests:.1f} Simple chests\n"
                 f"- {double_chests:.1f} Double chests"
             )
@@ -156,27 +186,67 @@ def process_mesh(sender = None, app_data = None, user_data = None):
     if viewer_process is not None and viewer_process.is_alive():
         viewer_process.terminate()
         viewer_process.join()
-        viewer_process = multiprocessing.Process(target=_run_3d_viewer, args=(voxel_matrix, shared_z))
+        viewer_process = multiprocessing.Process(target=_run_3d_viewer, args=(voxel_matrix, shared_z, ao_scores, sun_light, current_minecraft_blocks))
         viewer_process.start()
 
-def _run_3d_viewer(matrix, shared_z_obj):
+def _run_3d_viewer(matrix, shared_z_obj, ao, sun, blocks_palette):
     import trimesh
     import numpy as np
+
+    palette_colors = [b["color"] for b in blocks_palette] if blocks_palette else [[180, 180, 180, 255]]
+    num_colors = len(palette_colors)
 
     # Generates blue and grey cubes for a given Z value
     def build_meshes(z_target):
         meshes = {}
+
+        def apply_lighting(mesh_obj, is_active_layer):
+            centers = mesh_obj.triangles_center
+            coords = np.round(centers).astype(int)
+            cx = np.clip(coords[:, 0], 0, matrix.shape[0]-1)
+            cy = np.clip(coords[:, 1], 0, matrix.shape[1]-1)
+            cz = np.clip(coords[:, 2], 0, matrix.shape[2]-1)
+
+            scores = ao[cx, cy, cz]
+            is_sunlit = sun[cx, cy, cz]
+            colors = np.zeros((len(centers), 4), dtype=np.uint8)
+
+            if is_active_layer:
+                b_colors = [
+                    [70, 160, 240, 255], [40, 120, 215, 255],
+                    [20, 90, 180, 255], [10, 60, 140, 255]
+                ]
+                colors = np.full((len(centers), 4), b_colors[1])
+                colors[scores >= 11] = b_colors[2]
+                colors[scores >= 20] = b_colors[3]
+                colors[is_sunlit] = b_colors[0]
+            else:
+                if num_colors == 0:
+                    colors = np.full((len(centers), 4), [180, 180, 180, 255])
+                elif num_colors == 1:
+                    colors = np.full((len(centers), 4), palette_colors[0])
+                else:
+                    colors = np.full((len(centers), 4), palette_colors[1])
+                    if num_colors == 4:
+                        colors[scores >= 11] = palette_colors[2]
+                        colors[scores >= 20] = palette_colors[3]
+                    else:
+                        idx = 1 + np.floor((scores / 26.0) * (num_colors - 1)).astype(int)
+                        idx = np.clip(idx, 1, num_colors - 1)
+                        for i in range(1, num_colors):
+                            colors[idx == i] = palette_colors[i]
+
+                    colors[is_sunlit] = palette_colors[0]
+
+            mesh_obj.visual.face_colors = colors
+            return mesh_obj
         
         # Gray cubes
         gray_matrix = np.copy(matrix)
         gray_matrix[:, :, z_target:] = False
         if np.any(gray_matrix):
             gray_mesh = trimesh.voxel.VoxelGrid(gray_matrix).as_boxes()
-            centers = gray_mesh.triangles_center
-            checker = (np.floor(centers[:, 0]) + np.floor(centers[:, 1]) + np.floor(centers[:, 2])) % 2 == 0
-            colors = np.full((len(centers), 4), [150, 150, 150, 255])
-            colors[checker] = [130, 130, 130, 255]
-            gray_mesh.visual.face_colors = colors
+            gray_mesh = apply_lighting(gray_mesh, is_active_layer=False)
             meshes['gray_blocks'] = gray_mesh
 
         # Blue cubes
@@ -184,11 +254,7 @@ def _run_3d_viewer(matrix, shared_z_obj):
         blue_matrix[:, :, z_target] = matrix[:, :, z_target]
         if np.any(blue_matrix):
             blue_mesh = trimesh.voxel.VoxelGrid(blue_matrix).as_boxes()
-            centers = blue_mesh.triangles_center
-            checker = (np.floor(centers[:, 0]) + np.floor(centers[:, 1]) + np.floor(centers[:, 2])) % 2 == 0
-            colors = np.full((len(centers), 4), [50, 150, 255, 255])
-            colors[checker] = [30, 110, 210, 255]
-            blue_mesh.visual.face_colors = colors
+            blue_mesh = apply_lighting(blue_mesh, is_active_layer=True)
             meshes['blue_blocks'] = blue_mesh
             
         return meshes
@@ -224,14 +290,14 @@ def _run_3d_viewer(matrix, shared_z_obj):
     scene.show(callback=update_scene, smooth=False)
 
 def show_real_3d_viewer():
-    global voxel_matrix, viewer_process, shared_z
+    global voxel_matrix, viewer_process, shared_z, ao_scores, sun_light, current_minecraft_blocks
     if voxel_matrix is None:
         return
 
     shared_z.value = dpg.get_value("layer_input")
 
     if viewer_process is None or not viewer_process.is_alive():
-        viewer_process = multiprocessing.Process(target=_run_3d_viewer, args=(voxel_matrix,shared_z))
+        viewer_process = multiprocessing.Process(target=_run_3d_viewer, args=(voxel_matrix,shared_z, ao_scores, sun_light, current_minecraft_blocks))
         viewer_process.start()
 
 def update_2d_view(sender=None, app_data=None, user_data=None):
@@ -269,7 +335,7 @@ def update_2d_view(sender=None, app_data=None, user_data=None):
     shared_z.value = z_current
 
 def export_to_litematic(sender=None, app_data=None, user_data=None):
-    global voxel_matrix, current_model_path, current_minecraft_blocks
+    global voxel_matrix, current_model_path, current_minecraft_blocks, ao_scores, sun_light
     
     if voxel_matrix is None or not np.any(voxel_matrix) or not isinstance(current_model_path, str):
         dpg.set_value("status_text", "Error: Generate a model first.")
@@ -277,28 +343,52 @@ def export_to_litematic(sender=None, app_data=None, user_data=None):
 
     dpg.set_value("status_text", "Export in progress, please wait...")
 
-    #! WARNING !!!!
+    use_palette = dpg.get_value("use_palette_checkbox")
+    num_colors = len(current_minecraft_blocks)
+
     #! Minecraft axes : X Z flat then Y height
     #! This code axes : X Y flat then Z height
     max_x, max_y, max_z = voxel_matrix.shape 
-    # type: ignore we know that voxel matrix has passed a filter
     reg = Region(0, 0, 0, max_x, max_z, max_y)  # Swap Y and Z here
     
     base_name = os.path.splitext(os.path.basename(current_model_path))[0]
-
     schem = Schematic(
         name=base_name, 
         author="STL2MC", 
         description="Structure generated using STL2MC", 
         regions={"main": reg}
     )
-    selected_material_name = dpg.get_value("material_input")
-    block_id = current_minecraft_blocks.get(selected_material_name, "minecraft:stone")
-    block = BlockState(block_id)
 
     # Reverted too because blocks must be placed with the same way as the region above
     xs, ys, zs = np.where(voxel_matrix)
     for x, y, z in zip(xs, ys, zs):
+        # Block mapping
+        if use_palette and num_colors > 0 and ao_scores is not None and sun_light is not None: 
+            sc = ao_scores[x, y, z]
+            sun = sun_light[x, y, z]
+
+            if sun:
+                idx = 0
+            elif num_colors == 4:
+                idx = 1 if sc < 11 else (2 if sc < 20 else 3)
+            elif num_colors > 1:
+                idx = 1 + int((sc / 26.0) * (num_colors - 1)) # Since max ao score = 26
+                idx = min(idx, num_colors - 1)
+            else:
+                idx = 0
+
+            block_id = current_minecraft_blocks[idx]["id"]
+
+        # Single block mapping
+        else:
+            selected_name = dpg.get_value("material_input")
+            block_id = "minecraft:stone"
+            for b in current_minecraft_blocks:
+                if b["name"] == selected_name:
+                    block_id = b["id"]
+                    break
+
+        block = BlockState(block_id)
         reg[int(x), int(z), int(y)] = block
 
     # Save in output folder
@@ -337,7 +427,7 @@ if __name__ == "__main__":
                 dpg.add_text("File: None", tag="current_file_text", wrap=330)
                 
                 dpg.add_separator()
-                dpg.add_input_int(label="Max Height (Z)", default_value=100, tag="z_max_input")
+                dpg.add_input_int(label="Max Height (Z)", default_value=50, tag="z_max_input")
                 dpg.add_input_float(label="Fill (%)", default_value=0.0, step=10.0, tag="fill_input")
                 
                 dpg.add_separator()
@@ -365,10 +455,15 @@ if __name__ == "__main__":
                 default_conf = conf_files[0] if conf_files else ""
                 if default_conf:
                     current_minecraft_blocks = load_blocks_from_file(default_conf)
-                initial_blocks = list(current_minecraft_blocks.keys())
+
+                initial_blocks = [b["name"] for b in current_minecraft_blocks] if current_minecraft_blocks else []
                 default_block = initial_blocks[0] if initial_blocks else ""
+
                 dpg.add_combo(conf_files, label="File version to use", default_value=default_conf, tag="config_file_input", callback=on_config_changed, width=-1)
                 dpg.add_combo(initial_blocks, default_value=default_block, tag="material_input", width=-1)
+
+                dpg.add_checkbox(label="Use full palette (based on lighting)", default_value=False, tag="use_palette_checkbox")
+                
                 dpg.add_button(label="Export to .litematic", callback=export_to_litematic, width=-1, height=40)
 
             # Right column = all the space not used by the left column = viewer and its settings
