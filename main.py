@@ -217,8 +217,8 @@ def _run_3d_viewer(matrix, shared_z_obj, ao, sun, blocks_palette):
                     [20, 90, 180, 255], [10, 60, 140, 255]
                 ]
                 colors = np.full((len(centers), 4), b_colors[1])
-                colors[scores >= 11] = b_colors[2]
-                colors[scores >= 20] = b_colors[3]
+                colors[scores >= 13] = b_colors[2]
+                colors[scores >= 17] = b_colors[3]
                 colors[is_sunlit] = b_colors[0]
             else:
                 if num_colors == 0:
@@ -228,8 +228,8 @@ def _run_3d_viewer(matrix, shared_z_obj, ao, sun, blocks_palette):
                 else:
                     colors = np.full((len(centers), 4), palette_colors[1])
                     if num_colors == 4:
-                        colors[scores >= 11] = palette_colors[2]
-                        colors[scores >= 20] = palette_colors[3]
+                        colors[scores >= 13] = palette_colors[2]
+                        colors[scores >= 17] = palette_colors[3]
                     else:
                         idx = 1 + np.floor((scores / 26.0) * (num_colors - 1)).astype(int)
                         idx = np.clip(idx, 1, num_colors - 1)
@@ -370,7 +370,7 @@ def export_to_litematic(sender=None, app_data=None, user_data=None):
             if sun:
                 idx = 0
             elif num_colors == 4:
-                idx = 1 if sc < 11 else (2 if sc < 20 else 3)
+                idx = 1 if sc < 13 else (2 if sc < 17 else 3)
             elif num_colors > 1:
                 idx = 1 + int((sc / 26.0) * (num_colors - 1)) # Since max ao score = 26
                 idx = min(idx, num_colors - 1)
